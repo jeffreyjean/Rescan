@@ -97,10 +97,8 @@ int main() {
     if (xHciDevInst)
     {
         //printf("\n\Scan child devices (ELAN KB/TP controller) behind USB xHCI Host Controller...");
-        unsigned int counter = 0;
         do {
             EnumerateDevices(xHciDevInst, TRUE);
-            counter++;
             Sleep(10);
         } while (TRUE);
     }
