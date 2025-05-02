@@ -68,7 +68,7 @@ int main() {
         return 1;
     }
     unsigned int counter = 0;
-    while (false)
+    while (true)
     {
         // Trigger a device tree rescan
         CM_Reenumerate_DevNode(NULL, 0);
@@ -76,7 +76,7 @@ int main() {
         Sleep(1000);
         counter++;
         printf("[%3d] Rescan device tree and sleep for 1 second\n\n", counter);
-        if (counter == 5)
+        if (counter == 50)
         {
             printf("Reach counter limit %d, stop the recan daemon\n", counter);
             break;
@@ -84,6 +84,7 @@ int main() {
     }
     SetupDiDestroyDeviceInfoList(hDevInfo);
     */
+
     // Locate root devnode
     cr = CM_Locate_DevNode(&rootDevInst, NULL, CM_LOCATE_DEVNODE_NORMAL);
     if (cr != CR_SUCCESS) {
@@ -95,23 +96,13 @@ int main() {
 
     if (xHciDevInst)
     {
+        //printf("\n\Scan child devices (ELAN KB/TP controller) behind USB xHCI Host Controller...");
         unsigned int counter = 0;
         do {
-            //printf("\n\Scan child devices (ELAN KB/TP controller) behind USB xHCI Host Controller...");
             EnumerateDevices(xHciDevInst, TRUE);
             counter++;
-            Sleep(50);
+            Sleep(10);
         } while (TRUE);
     }
     return 0;
 }
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
