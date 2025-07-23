@@ -1,4 +1,4 @@
-// Rescan.cpp : This file contains the 'main' function. Program execution begins and ends there.
+﻿// Rescan.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 #include <stdio.h>
 #include <windows.h>
@@ -6,8 +6,12 @@
 #include <cfgmgr32.h>
 #include <initguid.h>
 #include <devguid.h>
+#include <devpkey.h>
+#include <iostream>
+#include <tchar.h>
 
-#pragma comment(lib, "SetupAPI.lib")
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "cfgmgr32.lib")
 DEVINST xHciDevInst = 0;
 WCHAR * xHCI_Host_Controller = (WCHAR *) L"ACPI\\QCOM0D08\\3";
 // Test
@@ -53,21 +57,153 @@ void EnumerateDevices(DEVINST devInst, BOOLEAN rescan) {
     } while (cr == CR_SUCCESS);
 }
 
-void RecoverDeviceDriver(BOOLEAN enable)
-{
-    if (enable)
-    {
-        // re-enable device driver
-    } 
-    else
-    {
-        // disable device driver
+bool ChangeDeviceState(HDEVINFO hDevInfo, SP_DEVINFO_DATA& devInfoData, bool enable) {
+    SP_PROPCHANGE_PARAMS params;
+    ZeroMemory(&params, sizeof(params));
+    params.ClassInstallHeader.cbSize = sizeof(SP_CLASSINSTALL_HEADER);
+    params.ClassInstallHeader.InstallFunction = DIF_PROPERTYCHANGE;
+    params.StateChange = enable ? DICS_ENABLE : DICS_DISABLE;
+    params.Scope = DICS_FLAG_GLOBAL;
+    params.HwProfile = 0;
+
+    // Set class install parameters
+    if (!SetupDiSetClassInstallParams(hDevInfo, &devInfoData, &params.ClassInstallHeader, sizeof(params))) {
+        std::cerr << "SetupDiSetClassInstallParams failed. Error: " << GetLastError() << std::endl;
+        return false;
     }
-    return
+
+    // Apply the property change
+    if (!SetupDiCallClassInstaller(DIF_PROPERTYCHANGE, hDevInfo, &devInfoData)) {
+        std::cerr << "SetupDiCallClassInstaller failed. Error: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    return true;
 }
+
+bool RestartDevice(HDEVINFO hDevInfo, SP_DEVINFO_DATA& devInfoData) {
+    std::cout << "Disabling device..." << std::endl;
+    if (!ChangeDeviceState(hDevInfo, devInfoData, false)) {
+        return false;
+    }
+    Sleep(1000);  // Small delay
+
+    std::cout << "Enabling device..." << std::endl;
+    if (!ChangeDeviceState(hDevInfo, devInfoData, true)) {
+        return false;
+    }
+
+    std::cout << "Device restart completed." << std::endl;
+    return true;
+}
+
+
+void EnumerateDeviceInfo() {
+    HDEVINFO hDevInfo = SetupDiGetClassDevs(
+        NULL,
+        NULL,
+        NULL,
+        DIGCF_ALLCLASSES | DIGCF_PRESENT | DIGCF_PROFILE
+    );
+
+    if (hDevInfo == INVALID_HANDLE_VALUE) {
+        std::cerr << "SetupDiGetClassDevs failed\n";
+        return;
+    }
+
+    SP_DEVINFO_DATA devInfoData;
+
+    ZeroMemory(&devInfoData, sizeof(SP_DEVINFO_DATA));
+    devInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+
+    for (DWORD i = 0; SetupDiEnumDeviceInfo(hDevInfo, i, &devInfoData); i++) {
+        TCHAR name[1024];
+        DWORD size = 0;
+
+        // Try Friendly Name first
+        if (!SetupDiGetDeviceRegistryProperty(
+            hDevInfo, &devInfoData, SPDRP_FRIENDLYNAME,
+            NULL, (PBYTE)name, sizeof(name), &size)) {
+            // Fall back to Device Description
+            if (!SetupDiGetDeviceRegistryProperty(
+                hDevInfo, &devInfoData, SPDRP_DEVICEDESC,
+                NULL, (PBYTE)name, sizeof(name), &size)) {
+                _tcscpy_s(name, _T("Unknown Device"));
+            }
+        }
+
+        // Check device status for Yellow Bang
+        ULONG status = 0, problemCode = 0;
+        if (CM_Get_DevNode_Status(&status, &problemCode, devInfoData.DevInst, 0) == CR_SUCCESS) {
+            if (status & DN_HAS_PROBLEM) {
+                std::wcout << L"Device Name: " << name << std::endl;
+                std::wcout << L"    Yellow Bang, Problem Code: " << problemCode << L"" << std::endl;
+
+                // Get Hardware IDs
+                TCHAR hwid[1024];
+                if (SetupDiGetDeviceRegistryProperty(
+                    hDevInfo, &devInfoData, SPDRP_HARDWAREID,
+                    NULL, (PBYTE)hwid, sizeof(hwid), NULL)) {
+                    std::wcout << L"    Hardware ID: " << hwid << std::endl;
+                }
+
+                // Get driver version
+                WCHAR driverVersion[256] = { 0 };
+                DEVPROPTYPE propType;
+                if (SetupDiGetDevicePropertyW(
+                    hDevInfo, &devInfoData, &DEVPKEY_Device_DriverVersion,
+                    &propType, (PBYTE)driverVersion, sizeof(driverVersion), NULL, 0)) {
+                    std::wcout << L"    Driver Version: " << driverVersion << std::endl;
+                }
+
+                std::wcout << L"----------------------------------" << std::endl;
+
+                // Attempt for recovery by Disable/Enable device 
+                if (RestartDevice(hDevInfo, devInfoData))
+                {
+                    // Check the status again and see whethere it's successfully recovered or not
+                    if (CM_Get_DevNode_Status(&status, &problemCode, devInfoData.DevInst, 0) == CR_SUCCESS) {
+                        if (status & DN_HAS_PROBLEM) {
+                            std::wcout << L"Device Name: " << name << std::endl;
+                            std::wcout << L"    Yellow Bang, Problem Code: " << problemCode << L"" << std::endl;
+                        }
+                        else
+                        {
+                            std::wcout << L"Device Name: " << name << std::endl;
+                            std::wcout << L"    No more yellow bang, recover successfully! " << L"" << std::endl;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SetupDiDestroyDeviceInfoList(hDevInfo);
+}
+
+BOOL IsRunAsAdmin() {
+    BOOL isAdmin = FALSE;
+    PSID adminGroup = NULL;
+    SID_IDENTIFIER_AUTHORITY NtAuthority = SECURITY_NT_AUTHORITY;
+    if (AllocateAndInitializeSid(&NtAuthority, 2,
+        SECURITY_BUILTIN_DOMAIN_RID,
+        DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup)) {
+        CheckTokenMembership(NULL, adminGroup, &isAdmin);
+        FreeSid(adminGroup);
+    }
+    return isAdmin;
+}
+
 int main() {
     DEVINST rootDevInst;
     CONFIGRET cr;
+
+    if (!IsRunAsAdmin())
+    {
+        std::wcout << L"Please re-run as administrator" << std::endl;
+        return false;
+    }
+
     /*
     // Get device info set for all present USB devices
     HDEVINFO hDevInfo = SetupDiGetClassDevs(
@@ -113,11 +249,15 @@ int main() {
             //printf("\n\Scan child devices (ELAN KB/TP controller) behind USB xHCI Host Controller...");
             do {
                 EnumerateDevices(xHciDevInst, TRUE);
-                Sleep(10000);
+                Sleep(10);
             } while (TRUE);
         }
     }
 
-    // 
+    do {
+        // Examine if there is any yellow bang device in Device Manager
+        EnumerateDeviceInfo();
+        Sleep(1000);
+    } while (TRUE);
     return 0;
 }
