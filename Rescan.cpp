@@ -53,6 +53,18 @@ void EnumerateDevices(DEVINST devInst, BOOLEAN rescan) {
     } while (cr == CR_SUCCESS);
 }
 
+void RecoverDeviceDriver(BOOLEAN enable)
+{
+    if (enable)
+    {
+        // re-enable device driver
+    } 
+    else
+    {
+        // disable device driver
+    }
+    return
+}
 int main() {
     DEVINST rootDevInst;
     CONFIGRET cr;
@@ -72,7 +84,7 @@ int main() {
     {
         // Trigger a device tree rescan
         CM_Reenumerate_DevNode(NULL, 0);
-        
+
         Sleep(1000);
         counter++;
         printf("[%3d] Rescan device tree and sleep for 1 second\n\n", counter);
@@ -85,22 +97,27 @@ int main() {
     SetupDiDestroyDeviceInfoList(hDevInfo);
     */
 
-    // Locate root devnode
-    cr = CM_Locate_DevNode(&rootDevInst, NULL, CM_LOCATE_DEVNODE_NORMAL);
-    if (cr != CR_SUCCESS) {
-        printf("Failed to locate root devnode: 0x%.8x\n",cr);
-        return 1;
-    }
-
-    EnumerateDevices(rootDevInst, FALSE);
-
-    if (xHciDevInst)
+    if (false)
     {
-        //printf("\n\Scan child devices (ELAN KB/TP controller) behind USB xHCI Host Controller...");
-        do {
-            EnumerateDevices(xHciDevInst, TRUE);
-            Sleep(10);
-        } while (TRUE);
+        // Locate root devnode
+        cr = CM_Locate_DevNode(&rootDevInst, NULL, CM_LOCATE_DEVNODE_NORMAL);
+        if (cr != CR_SUCCESS) {
+            printf("Failed to locate root devnode: 0x%.8x\n", cr);
+            return 1;
+        }
+
+        EnumerateDevices(rootDevInst, FALSE);
+
+        if (xHciDevInst)
+        {
+            //printf("\n\Scan child devices (ELAN KB/TP controller) behind USB xHCI Host Controller...");
+            do {
+                EnumerateDevices(xHciDevInst, TRUE);
+                Sleep(10000);
+            } while (TRUE);
+        }
     }
+
+    // 
     return 0;
 }
